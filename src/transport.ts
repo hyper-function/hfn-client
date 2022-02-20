@@ -1,7 +1,7 @@
 import { RunwayTransportType } from "./config";
 import EventEmitter from "./mitt";
 import * as msgpack from "./msgpack";
-import { MessagePayload, Socket } from "./socket";
+import { Socket } from "./socket";
 
 export enum PacketType {
   OPEN = 1,
@@ -16,25 +16,29 @@ export enum PacketType {
 }
 
 export interface PacketOpen {
-  pi?: number; // ping interval second, default is 25s
-  pt?: number; // ping timeout second, default is 20s
+  pingInterval: number;
+  pingTimeout: number;
+}
+
+// eslint-disable-next-line
+export interface PacketClose {
+  reason: string;
 }
 
 // reconnect with same session id
 export interface PacketRetry {
-  delay?: number; // delay seconds to reconnect
+  delay: number; // delay seconds to reconnect
 }
 
 export interface PacketReset {
-  delay?: number; // delay seconds to reconnect
+  delay: number; // delay seconds to reconnect
 }
 
 export interface PacketRedirect {
+  delay: number; // delay seconds to connect
   target: string;
 }
 
-// eslint-disable-next-line
-export interface PacketClose {}
 // eslint-disable-next-line
 export interface PacketPing {}
 // eslint-disable-next-line
@@ -43,6 +47,7 @@ export interface PacketPong {}
 export interface PacketMessage {
   id: number;
   packageId: number;
+  headers: Record<string, string>;
   payload: Uint8Array;
 }
 
@@ -96,30 +101,41 @@ export class Transport extends EventEmitter {
 
   encodePacket(packet: Packet): Uint8Array {
     switch (packet.type) {
-      case PacketType.OPEN:
-      case PacketType.RETRY:
-      case PacketType.RESET:
-      case PacketType.REDIRECT:
-      case PacketType.CLOSE:
       case PacketType.PING:
-      case PacketType.PONG: {
-        return msgpack.encode([packet.type, packet.data || {}], true);
-      }
-      case PacketType.MESSAGE: {
-        const message = packet.data as PacketMessage;
+      case PacketType.PONG:
+        return msgpack.encode(packet.type);
 
+      case PacketType.CLOSE:
         return msgpack.encode(
-          [packet.type, message.id, message.packageId, message.payload],
+          [packet.type, (packet.data as PacketClose).reason],
           true
         );
-      }
-      case PacketType.ACK: {
-        const ack = packet.data as PacketAck;
-        return msgpack.encode([packet.type, ack.id, ack.packageId], true);
-      }
-    }
 
-    // TODO: throw error
+      case PacketType.MESSAGE:
+        return msgpack.encode(
+          [
+            packet.type,
+            (packet.data as PacketMessage).id,
+            (packet.data as PacketMessage).packageId,
+            (packet.data as PacketMessage).headers || {},
+            (packet.data as PacketMessage).payload
+          ],
+          true
+        );
+
+      case PacketType.ACK:
+        return msgpack.encode(
+          [
+            packet.type,
+            (packet.data as PacketAck).id,
+            (packet.data as PacketAck).packageId
+          ],
+          true
+        );
+
+      default:
+        return new Uint8Array([]);
+    }
   }
   decodePackets(buffer: Uint8Array): Packet[] {
     const packets: Packet[] = [];
@@ -140,17 +156,41 @@ export class Transport extends EventEmitter {
 
       switch (type) {
         case PacketType.OPEN:
+          packets.push({
+            type,
+            data: { pingInterval: items[pos + 1], pingTimeout: items[pos + 2] }
+          });
+          read(pos + 3);
+          break;
         case PacketType.RETRY:
         case PacketType.RESET:
+          packets.push({
+            type,
+            data: { delay: items[pos + 1] }
+          });
+          read(pos + 2);
+          break;
         case PacketType.REDIRECT:
+          packets.push({
+            type,
+            data: { delay: items[pos + 1], target: items[pos + 2] }
+          });
+          read(pos + 3);
+          break;
         case PacketType.CLOSE:
+          packets.push({
+            type,
+            data: { reason: items[pos + 1] }
+          });
+          read(pos + 2);
+          break;
         case PacketType.PING:
         case PacketType.PONG:
           packets.push({
             type,
-            data: items[pos + 1]
+            data: {}
           });
-          read(pos + 2);
+          read(pos + 1);
           break;
         case PacketType.MESSAGE:
           packets.push({
@@ -158,10 +198,11 @@ export class Transport extends EventEmitter {
             data: {
               id: items[pos + 1],
               packageId: items[pos + 2],
-              payload: items[pos + 3]
+              headers: items[pos + 3],
+              payload: items[pos + 4]
             }
           });
-          read(pos + 4);
+          read(pos + 5);
           break;
         case PacketType.ACK:
           packets.push({

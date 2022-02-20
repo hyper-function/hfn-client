@@ -167,13 +167,13 @@ export default class HyperFunctionClient extends EventEmitter {
   private handleSetStateMessage(args: MessageSetState) {
     const pkgId = args[1];
     const moduleId = args[2];
-    const pkg = this.config.packageMap[pkgId];
+    const pkg = this.config.packages[pkgId];
 
     if (!pkg) return;
-    const mod = pkg.moduleMap[moduleId];
+    const mod = pkg.modules[moduleId];
 
     if (!mod) return;
-    const model = new Model(this.config, mod.modelMap[0].schema);
+    const model = new Model(mod.models[0].schema, this.config);
     model.decode(args[3]);
 
     this.emit("state", { package: pkg, module: mod, state: model });
@@ -206,13 +206,13 @@ export default class HyperFunctionClient extends EventEmitter {
     const rpcAckId = args[2];
     const payload = args[3];
 
-    const pkg = this.config.packageMap[packageId];
-    const rpc = pkg.rpcMap[rpcId];
+    const pkg = this.config.packages[packageId];
+    const rpc = this.config.rpcs[`${pkg.id}-${rpcId}`];
     const pending = this.pendingRpc[rpcAckId];
     if (!pending) return;
 
     clearTimeout(pending.timer);
-    const model = new Model(this.config, rpc.resSchema);
+    const model = new Model(rpc.resSchema, this.config);
     model.decode(payload!);
 
     const obj = model.toObject();
@@ -224,17 +224,18 @@ export default class HyperFunctionClient extends EventEmitter {
   hfn(
     name: string,
     payload: Record<string, any> | Model | null = null,
-    headers: Record<string, string> | null = null,
-    opts?: any
+    opts: {
+      headers?: Record<string, string>;
+    } = {}
   ) {
     if (!this.isReady) {
       this.once("ready", () => {
-        this.hfn(name, payload, headers, opts);
+        this.hfn(name, payload, opts);
       });
       return;
     }
 
-    const hfn = this.config.hfnMap[name];
+    const hfn = this.config.hfns[name];
     if (!hfn) {
       console.log(`hfn: ${name} not found`);
       return false;
@@ -246,7 +247,7 @@ export default class HyperFunctionClient extends EventEmitter {
     } else if (payload instanceof Model) {
       data = payload.encode();
     } else if (typeof payload === "object") {
-      const model = new Model(this.config, hfn.shcema);
+      const model = new Model(hfn.shcema, this.config);
       model.fromObject(payload);
       data = model.encode();
     }
@@ -254,17 +255,19 @@ export default class HyperFunctionClient extends EventEmitter {
     const packageId = hfn.module.pkg.id;
     const cookies = this.getCookie(packageId);
 
+    const headers = opts.headers || {};
+
     const args: MessageCallHyperFunction = [
       1,
       hfn.module.id,
       hfn.id,
-      data,
       cookies.length ? msgpack.encode(cookies) : null,
-      headers || null
+      data
     ];
 
     this.socket.sendMessage({
       packageId,
+      headers,
       args
     });
 
@@ -274,18 +277,20 @@ export default class HyperFunctionClient extends EventEmitter {
   rpc(
     name: string,
     payload: Record<string, any> | Model | null = null,
-    headers: Record<string, string> | null = null,
-    opts?: any
+    opts: {
+      headers?: Record<string, string>;
+      timeout?: number;
+    } = {}
   ): Promise<Record<string, any>> {
     return new this.Promise((resolve, reject) => {
       if (!this.isReady) {
         this.once("ready", () => {
-          this.rpc(name, payload, headers, opts).then(resolve, reject);
+          this.rpc(name, payload, opts).then(resolve, reject);
         });
         return;
       }
 
-      const rpc = this.config.rpcMap[name];
+      const rpc = this.config.rpcs[name];
       if (!rpc) {
         console.log(`rpc: ${name} not found`);
         return false;
@@ -297,13 +302,14 @@ export default class HyperFunctionClient extends EventEmitter {
       } else if (payload instanceof Model) {
         data = payload.encode();
       } else if (typeof payload === "object") {
-        const model = new Model(this.config, rpc.reqSchema);
+        const model = new Model(rpc.reqSchema, this.config);
         model.fromObject(payload);
         data = model.encode();
       }
 
       const packageId = rpc.pkg.id;
       const cookies = this.getCookie(packageId);
+      const headers = opts.headers || {};
 
       let timeout = 60;
       if (opts && opts.timeout) timeout = opts.timeout;
@@ -325,13 +331,13 @@ export default class HyperFunctionClient extends EventEmitter {
         4,
         rpc.id,
         rpcAckId,
-        data,
         cookies.length ? msgpack.encode(cookies) : null,
-        headers || null
+        data
       ];
 
       this.socket.sendMessage({
         packageId,
+        headers,
         args
       });
     });
@@ -348,13 +354,13 @@ export default class HyperFunctionClient extends EventEmitter {
   }
 
   model(name: string) {
-    const model = this.config.modelMap[name];
+    const model = this.config.models[name];
     if (!model) {
       console.log(`model: ${name} not found`);
       return false;
     }
 
-    return new Model(this.config, model.schema);
+    return new Model(model.schema, this.config);
   }
 }
 

@@ -35,13 +35,13 @@ function processType(value: any, type: string) {
 
 export default class Model {
   private data: Record<string, any>;
-  constructor(public appConfig: Config, public schema: Schema) {
+  constructor(public schema: Schema, public config: Config) {
     this.data = Object.create(null);
   }
 
   set(key: string, value: any) {
     if (typeof value === "undefined") return false;
-    const field = this.schema.fieldMap[key];
+    const field = this.schema.fields[key];
     if (!field) return false;
 
     const isArray = Array.isArray(value);
@@ -58,16 +58,16 @@ export default class Model {
       }
     } else {
       // model type
-      const targetSchema = this.appConfig.schemaMap[field.type];
+      const targetSchema = this.config.schemas[field.type];
       if (!targetSchema) return false;
       if (isArray) {
         for (let i = 0; i < value.length; i++) {
           const item = value[i];
-          if (!(item instanceof Model) || item.schema.idWithPid !== field.type)
+          if (!(item instanceof Model) || item.schema._id !== field.type)
             return false;
         }
       } else {
-        if (!(value instanceof Model) || value.schema.idWithPid !== field.type)
+        if (!(value instanceof Model) || value.schema._id !== field.type)
           return false;
       }
     }
@@ -92,7 +92,7 @@ export default class Model {
     const dataArr = [];
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
-      const field = this.schema.fieldMap[key];
+      const field = this.schema.fields[key];
       dataArr.push(field.id);
 
       let value;
@@ -127,7 +127,7 @@ export default class Model {
     for (let i = 0; i < dataArr.length; i++) {
       const item = dataArr[i];
       if (!field) {
-        field = this.schema.fieldMap[item];
+        field = this.schema.fields[item];
         if (!field) return;
         continue;
       }
@@ -136,16 +136,16 @@ export default class Model {
       if (field.type.length === 1) {
         value = item;
       } else {
-        const targetSchema = this.appConfig.schemaMap[field.type];
+        const targetSchema = this.config.schemas[field.type];
         if (!targetSchema) return;
         if (field.isArray) {
           value = item.map((data: Uint8Array) => {
-            const m = new Model(this.appConfig, targetSchema);
+            const m = new Model(targetSchema, this.config);
             m.decode(data);
             return m;
           });
         } else {
-          value = new Model(this.appConfig, targetSchema);
+          value = new Model(targetSchema, this.config);
           value.decode(item);
         }
       }
@@ -157,7 +157,7 @@ export default class Model {
   fromObject(obj: any) {
     if (typeof obj !== "object") return null;
     Object.keys(obj).forEach(key => {
-      const field = this.schema.fieldMap[key];
+      const field = this.schema.fields[key];
       if (!field) return null;
       if (field.type.length === 1) {
         this.set(key, obj[key]);
@@ -166,19 +166,13 @@ export default class Model {
           this.set(
             key,
             obj[key].map((item: any) => {
-              const m = new Model(
-                this.appConfig,
-                this.appConfig.schemaMap[field.type]
-              );
+              const m = new Model(this.config.schemas[field.type], this.config);
               m.fromObject(item);
               return m;
             })
           );
         } else {
-          const m = new Model(
-            this.appConfig,
-            this.appConfig.schemaMap[field.type]
-          );
+          const m = new Model(this.config.schemas[field.type], this.config);
           m.fromObject(obj[key]);
           this.set(key, m);
         }
@@ -189,7 +183,7 @@ export default class Model {
   toObject() {
     const obj: Record<string, any> = {};
     this.keys().forEach(key => {
-      const field = this.schema.fieldMap[key];
+      const field = this.schema.fields[key];
       if (!field) return;
       if (field.type.length === 1) {
         obj[key] = this.get(key);

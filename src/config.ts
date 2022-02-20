@@ -52,36 +52,29 @@ export interface SchemaField {
 
 export interface Schema {
   id: number;
-  idWithPid: string;
-  fields: SchemaField[];
-  fieldMap: Record<string, SchemaField>;
+  _id: string;
+  fields: Record<string, SchemaField>;
 }
 
 export interface Package {
   id: number;
   name: string;
   fullName?: string;
-  modules: Module[];
-  moduleMap: Record<string, Module>;
-  hfnMap: Record<string, HyperFunction>;
-  modelMap: Record<string, Model>;
-  schemaMap: Record<string, Schema>;
-  rpcs: Rpc[];
-  rpcMap: Record<string, Rpc>;
+  modules: Record<string, Module>;
+  rpcs: Record<string, Rpc>;
 }
 
 export interface Model {
   id: number;
   name: string;
-  module: Module;
   schema: Schema;
 }
 
 export interface HyperFunction {
   id: number;
   name: string;
-  module: Module;
   shcema: Schema;
+  module: Module;
 }
 
 export interface Rpc {
@@ -95,10 +88,8 @@ export interface Rpc {
 export interface Module {
   id: number;
   name: string;
-  models: Model[];
-  modelMap: Record<string, Model>;
-  hfns: HyperFunction[];
-  hfnMap: Record<string, HyperFunction>;
+  models: Record<string, Model>;
+  hfns: Record<string, HyperFunction>;
   pkg: Package;
 }
 
@@ -106,53 +97,40 @@ export class Config {
   id: string;
   towers: string[];
   runway: string;
-  packages: Package[] = [];
-  packageMap: Record<string, Package> = {};
-  schemaMap: Record<string, Schema> = {};
-  hfnMap: Record<string, HyperFunction> = {};
-  modelMap: Record<string, Model> = {};
-  rpcMap: Record<string, Rpc> = {};
+  packages: Record<string, Package> = {};
+  schemas: Record<string, Schema> = {};
+  hfns: Record<string, HyperFunction> = {};
+  models: Record<string, Model> = {};
+  rpcs: Record<string, Rpc> = {};
   constructor(public hfnConfig: HfnConfig) {
     this.id = hfnConfig[0];
     this.towers = hfnConfig[1];
     this.runway = hfnConfig[2];
 
     if (!this.runway && !this.towers.length) {
-      throw new Error("Tower or Runway is required");
+      throw new Error("miss url");
     }
 
-    const hfnPackages = hfnConfig[3];
-    hfnPackages.forEach(hfnPackage => {
+    hfnConfig[3].forEach(hfnPackage => {
       const pkg: Package = {
         id: hfnPackage[0],
         name: hfnPackage[1],
         fullName: hfnPackage[2],
-        modules: [],
-        moduleMap: {},
-        hfnMap: {},
-        modelMap: {},
-        schemaMap: {},
-        rpcs: [],
-        rpcMap: {}
+        modules: {},
+        rpcs: {}
       };
 
-      this.packages.push(pkg);
-      this.packageMap[pkg.id] = this.packageMap[pkg.name] = pkg;
-      if (pkg.fullName) this.packageMap[pkg.fullName] = pkg;
+      this.packages[pkg.id] = this.packages[pkg.name] = pkg;
+      if (pkg.fullName) this.packages[pkg.fullName] = pkg;
 
-      const hfnSchemas = hfnPackage[3] || [];
-      hfnSchemas.forEach(hfnSchema => {
+      hfnPackage[3].forEach(hfnSchema => {
         const schema: Schema = {
           id: hfnSchema[0],
-          idWithPid: `${pkg.id}-${hfnSchema[0]}`,
-          fields: [],
-          fieldMap: {}
+          _id: `${pkg.id}-${hfnSchema[0]}`,
+          fields: {}
         };
 
-        pkg.schemaMap[schema.id] = this.schemaMap[schema.idWithPid] = schema;
-
-        const hfnFields = hfnSchema[1] || [];
-        hfnFields.forEach(hfnField => {
+        hfnSchema[1].forEach(hfnField => {
           const field: SchemaField = {
             id: hfnField[0],
             name: hfnField[1],
@@ -160,76 +138,62 @@ export class Config {
             isArray: !!hfnField[3]
           };
 
-          schema.fields.push(field);
-          schema.fieldMap[field.id] = schema.fieldMap[field.name] = field;
+          schema.fields[field.id] = schema.fields[field.name] = field;
         });
+
+        this.schemas[`${pkg.id}-${schema.id}`] = schema;
       });
 
-      const hfnModules = hfnPackage[4] || [];
-      hfnModules.forEach(hfnModule => {
+      hfnPackage[4].forEach(hfnModule => {
         const mod: Module = {
           id: hfnModule[0],
           name: hfnModule[1],
-          models: [],
-          modelMap: {},
-          hfns: [],
-          hfnMap: {},
+          models: {},
+          hfns: {},
           pkg
         };
 
-        const hfnModels = hfnModule[2] || [];
-        hfnModels.forEach(hfnModel => {
+        hfnModule[2].forEach(hfnModel => {
           const model: Model = {
             id: hfnModel[0],
             name: hfnModel[2],
-            module: mod,
-            schema: pkg.schemaMap[hfnModel[1]]
+            schema: this.schemas[`${pkg.id}-${hfnModel[1]}`]
           };
 
-          mod.models.push(model);
-          mod.modelMap[model.id] = mod.modelMap[model.name] = model;
-          pkg.modelMap[`${mod.name}.${model.name || "State"}`] = model;
-          this.modelMap[
+          this.models[
             `${pkg.id === 0 ? "" : pkg.name + "."}${mod.name}.${
               model.name || "State"
             }`
           ] = model;
         });
 
-        const hfnHfns = hfnModule[3] || [];
-        hfnHfns.forEach(item => {
+        hfnModule[3].forEach(item => {
           const hfn: HyperFunction = {
             id: item[0],
             name: item[2],
-            module: mod,
-            shcema: pkg.schemaMap[item[1]]
+            shcema: this.schemas[`${pkg.id}-${item[1]}`],
+            module: mod
           };
 
-          mod.hfns.push(hfn);
-          mod.hfnMap[hfn.id] = mod.hfnMap[hfn.name] = hfn;
-          pkg.hfnMap[`${mod.name}.${hfn.name}`] = hfn;
-          this.hfnMap[
+          this.hfns[
             `${pkg.id === 0 ? "" : pkg.name + "."}${mod.name}.${hfn.name}`
           ] = hfn;
         });
 
-        pkg.modules.push(mod);
-        pkg.moduleMap[mod.id] = pkg.moduleMap[mod.name] = mod;
+        pkg.modules[mod.id] = pkg.modules[mod.name] = mod;
       });
 
-      const hfnRpcs = hfnPackage[5] || [];
-      hfnRpcs.forEach(hfnRpc => {
+      hfnPackage[5].forEach(hfnRpc => {
         const rpc: Rpc = {
           id: hfnRpc[0],
           name: hfnRpc[1],
-          reqSchema: pkg.schemaMap[hfnRpc[2]],
-          resSchema: pkg.schemaMap[hfnRpc[3]],
-          pkg
+          pkg,
+          reqSchema: this.schemas[`${pkg.id}-${hfnRpc[2]}`],
+          resSchema: this.schemas[`${pkg.id}-${hfnRpc[3]}`]
         };
 
-        pkg.rpcs.push(rpc);
-        pkg.rpcMap[rpc.id] = pkg.rpcMap[rpc.name] = rpc;
-        this.rpcMap[`${pkg.id === 0 ? "" : pkg.name + "."}${rpc.name}`] = rpc;
+        this.rpcs[`${pkg.id === 0 ? "" : pkg.name + "."}${rpc.name}`] =
+          this.rpcs[`${pkg.id}-${rpc.id}`] = rpc;
       });
     });
   }

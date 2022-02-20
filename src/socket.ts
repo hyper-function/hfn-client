@@ -10,7 +10,7 @@ import {
 import { transports } from "./transports";
 import HyperFunctionClient from "./client";
 import { RunwayTransportType } from "./config";
-import { fromQs, nanoid } from "./util";
+import { fromQs, uniqueId } from "./util";
 import { encode, decode } from "./msgpack";
 
 export type MessagePayload =
@@ -24,9 +24,8 @@ export type MessageCallHyperFunction = [
   1,
   number /* module id */,
   number /* hfn id */,
-  Uint8Array | null /* payload */,
   Uint8Array | null /* cookies */,
-  Record<string, string> | null /* headers */
+  Uint8Array | null /* data */
 ];
 
 export type MessageSetState = [
@@ -48,9 +47,8 @@ export type MessageRpcRequest = [
   4,
   number /* rpc id */,
   number /* rpc ack id */,
-  Uint8Array | null /* request payload */,
   Uint8Array | null /* cookies */,
-  Record<string, string> | null /* headers */
+  Uint8Array | null /* request payload */
 ];
 
 export type MessageRpcResponse = [
@@ -62,8 +60,8 @@ export type MessageRpcResponse = [
 
 export enum SocketReadyState {
   CONNECTING,
-  OPEN,
-  CLOSED
+  CONNECTED,
+  DISCONNECTED
 }
 
 export class Socket extends EventEmitter {
@@ -83,10 +81,10 @@ export class Socket extends EventEmitter {
   constructor(public client: HyperFunctionClient) {
     super();
 
-    this.ssid = nanoid();
+    this.ssid = uniqueId();
     this.client.storage.get("CID").then(cid => {
       if (!cid) {
-        cid = nanoid();
+        cid = uniqueId();
         this.client.storage.set("CID", cid);
       }
 
@@ -159,11 +157,13 @@ export class Socket extends EventEmitter {
   }
   sendMessage({
     packageId,
+    headers,
     args,
     ack,
     ackTimeout
   }: {
     packageId: number;
+    headers: Record<string, string>;
     args: MessagePayload;
     ack?: () => void;
     ackTimeout?: number;
@@ -171,6 +171,7 @@ export class Socket extends EventEmitter {
     const msg: PacketMessage = {
       id: 0,
       packageId,
+      headers,
       payload: encode(args, true)
     };
     this.send({ type: PacketType.MESSAGE, data: msg });
@@ -182,7 +183,7 @@ export class Socket extends EventEmitter {
   }
   flush() {
     if (
-      this.readyState === SocketReadyState.OPEN &&
+      this.readyState === SocketReadyState.CONNECTED &&
       this.transport?.writable &&
       this.writeBuffer.length
     ) {
@@ -200,7 +201,7 @@ export class Socket extends EventEmitter {
     }
   }
   onPackets(packets: Packet[]) {
-    if (this.readyState === SocketReadyState.CLOSED) return;
+    if (this.readyState === SocketReadyState.DISCONNECTED) return;
 
     this.heartbeatAt = Date.now();
     for (let i = 0; i < packets.length; i++) {
@@ -224,10 +225,10 @@ export class Socket extends EventEmitter {
     }
   }
   onOpen(packet: PacketOpen) {
-    this.readyState = SocketReadyState.OPEN;
+    this.readyState = SocketReadyState.CONNECTED;
 
-    this.pingInterval = packet.pi || 25;
-    this.pingTimeout = packet.pt || 20;
+    this.pingInterval = packet.pingInterval;
+    this.pingTimeout = packet.pingTimeout;
     this.retrys = 0;
     this.runHealthCheck();
 

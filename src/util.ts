@@ -50,7 +50,7 @@ export function getRandomValues(abv: Uint8Array) {
   return abv;
 }
 
-export function nanoid(count = 21) {
+export function nanoid(count: number) {
   let result = "";
   const randomArr = getRandomValues(new Uint8Array(count));
   for (; count--; ) {
@@ -66,6 +66,9 @@ export function nanoid(count = 21) {
   }
   return result;
 }
+
+export const uniqueId = () =>
+  Date.now().toString(36).toUpperCase() + nanoid(13);
 
 // export function toB64(bytes: Uint8Array): string {
 //   let i;

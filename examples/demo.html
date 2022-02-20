@@ -16,7 +16,17 @@
       const client = new hfn.HyperFunctionClient(uri);
       client.on("ready", () => {
         console.log("ready");
-        client.hfn("homeView.mount", { id: 1 });
+        client.hfn(
+          "homeView.mount",
+          {
+            id: 1,
+            name: ["a", "b"],
+            ha: { s: "aba", id: 3, f: 1.2, b: false, t: new Uint8Array([0xab]) }
+          },
+          {
+            headers: { a: "1", b: "2asdf阿瑟发afsef❤❤️😄" }
+          }
+        );
       });
       client.subscribe(function (change) {
         console.log(change);
