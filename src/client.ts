@@ -138,13 +138,13 @@ export default class HyperFunctionClient extends EventEmitter {
 
   private getCookie(packageId: number) {
     const now = Date.now();
-    const cookies: [string, string][] = [];
+    const cookies: Record<string, string> = {};
     this.cookies.forEach(item => {
       if (item.packageId !== -1 && item.packageId !== packageId) return;
       if (item.maxAge !== -1 && now - item.createdAt > item.maxAge * 1000)
         return;
 
-      cookies.push([item.name, item.value]);
+      cookies[item.name] = item.value;
     });
 
     return cookies;
@@ -261,7 +261,7 @@ export default class HyperFunctionClient extends EventEmitter {
       1,
       hfn.module.id,
       hfn.id,
-      cookies.length ? msgpack.encode(cookies) : null,
+      cookies,
       data
     ];
 
@@ -327,13 +327,7 @@ export default class HyperFunctionClient extends EventEmitter {
         timer
       };
 
-      const args: MessageRpcRequest = [
-        4,
-        rpc.id,
-        rpcAckId,
-        cookies.length ? msgpack.encode(cookies) : null,
-        data
-      ];
+      const args: MessageRpcRequest = [4, rpc.id, rpcAckId, cookies, data];
 
       this.socket.sendMessage({
         packageId,

@@ -164,7 +164,7 @@ export class Config {
             `${pkg.id === 0 ? "" : pkg.name + "."}${mod.name}.${
               model.name || "State"
             }`
-          ] = model;
+          ] = mod.models[model.id] = mod.models[model.name] = model;
         });
 
         hfnModule[3].forEach(item => {
@@ -177,7 +177,7 @@ export class Config {
 
           this.hfns[
             `${pkg.id === 0 ? "" : pkg.name + "."}${mod.name}.${hfn.name}`
-          ] = hfn;
+          ] = mod.hfns[hfn.id] = mod.hfns[hfn.name] = hfn;
         });
 
         pkg.modules[mod.id] = pkg.modules[mod.name] = mod;
@@ -193,7 +193,10 @@ export class Config {
         };
 
         this.rpcs[`${pkg.id === 0 ? "" : pkg.name + "."}${rpc.name}`] =
-          this.rpcs[`${pkg.id}-${rpc.id}`] = rpc;
+          this.rpcs[`${pkg.id}-${rpc.id}`] =
+          pkg.rpcs[rpc.id] =
+          pkg.rpcs[rpc.name] =
+            rpc;
       });
     });
   }

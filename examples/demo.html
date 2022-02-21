@@ -30,6 +30,7 @@
       });
       client.subscribe(function (change) {
         console.log(change);
+        console.log(change.state.toObject());
       });
     </script>
   </body>

@@ -24,8 +24,8 @@ export type MessageCallHyperFunction = [
   1,
   number /* module id */,
   number /* hfn id */,
-  Uint8Array | null /* cookies */,
-  Uint8Array | null /* data */
+  Record<string, string> /* cookies */,
+  Uint8Array | null /* payload */
 ];
 
 export type MessageSetState = [
@@ -47,7 +47,7 @@ export type MessageRpcRequest = [
   4,
   number /* rpc id */,
   number /* rpc ack id */,
-  Uint8Array | null /* cookies */,
+  Record<string, string> /* cookies */,
   Uint8Array | null /* request payload */
 ];
 
