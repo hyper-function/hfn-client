@@ -1,6 +1,3 @@
-import * as msgpack from "./msgpack";
-import unfetch from "./unfetch";
-
 import {
   MessageCallHyperFunction,
   MessagePayload,
@@ -10,9 +7,10 @@ import {
   MessageSetState,
   Socket
 } from "./socket";
-import { Config, Module, Package, HfnConfig } from "./config";
 import Model from "./model";
-import EventEmitter from "./mitt";
+import * as util from "./util";
+import * as msgpack from "./msgpack";
+import { Config, Module, Package } from "./config";
 
 interface CookieItem {
   packageId: number;
@@ -28,7 +26,9 @@ interface Storage {
   set(key: string, value: string): void;
 }
 
-export default class HyperFunctionClient extends EventEmitter {
+export default class HyperFunctionClient extends util.EventEmitter {
+  id!: string;
+  sessionId!: string;
   config!: Config;
   private socket!: Socket;
   private cookies: CookieItem[] = [];
@@ -49,7 +49,7 @@ export default class HyperFunctionClient extends EventEmitter {
   > = {};
 
   constructor(
-    config: string | HfnConfig,
+    config: string,
     opts: {
       Promise?: PromiseConstructor;
       WebSocket?: typeof WebSocket;
@@ -63,7 +63,7 @@ export default class HyperFunctionClient extends EventEmitter {
     this.WebSocket = opts.WebSocket || WebSocket;
     this.fetch = !opts.fetch
       ? typeof fetch === "undefined"
-        ? unfetch(this.Promise)
+        ? util.buildFetch(this.Promise)
         : fetch.bind(window)
       : opts.fetch;
 
@@ -79,33 +79,46 @@ export default class HyperFunctionClient extends EventEmitter {
       }
     };
 
-    if (typeof config === "string") {
-      if (config.slice(0, 4) === "http") {
-        this.fetch(config)
-          .then(res => res.json())
-          .then(res => this.connect(res.config));
-        return;
-      }
-
-      this.connect(JSON.parse(config));
-    } else {
-      this.connect(config);
+    if (config.slice(0, 4) === "http") {
+      this.fetch(config)
+        .then(res => res.json())
+        .then(res => {
+          this.config = res.config;
+          this.connect();
+        });
+      return;
     }
+
+    this.config = new Config(JSON.parse(config));
+    this.connect();
   }
 
-  connect(hfnConfig: HfnConfig) {
-    this.config = new Config(hfnConfig);
+  connect() {
     this.storage.prefix = this.storage.prefix + "_HFN_" + this.config.id + "_";
-    this.emit("configReady");
+    this.sessionId = util.uniqueId();
+    this.storage.get("CID").then(id => {
+      if (!id) {
+        id = util.uniqueId();
+        this.storage.set("CID", id);
+      }
 
-    this.socket = new Socket(this);
-    this.socket.on("open", () => {
-      this.isReady = true;
-      this.emit("ready");
+      this.id = id;
+      this.prepareCookie();
+
+      this.emit("configReady");
+
+      this.socket = new Socket(this);
+      this.socket.on("connected", () => {
+        this.isReady = true;
+        this.emit("connected");
+      });
+
+      this.socket.on("disconnected", () => {
+        this.isReady = false;
+        this.emit("disconnected");
+      });
+      this.socket.on("message", this.handleMessage.bind(this));
     });
-    this.socket.on("message", this.handleMessage.bind(this));
-
-    this.prepareCookie();
   }
   private prepareCookie() {
     this.storage.get("COOKIES").then(cookieValue => {
@@ -358,6 +371,4 @@ export default class HyperFunctionClient extends EventEmitter {
   }
 }
 
-export * as util from "./util";
-
-export { HyperFunctionClient, EventEmitter, unfetch };
+export { HyperFunctionClient, msgpack, util };

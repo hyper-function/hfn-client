@@ -1,35 +1,21 @@
 import { encode, decode } from "./msgpack";
 import { Config, Schema } from "./config";
 
-function processType(value: any, type: string) {
-  if (type === "s") {
-    return typeof value === "string" ? value : String(value);
-  }
+const isInteger =
+  Number.isInteger || ((x: any) => typeof x === "number" && x % 1 === 0);
 
-  if (type === "i") {
-    value = typeof value === "number" ? value : parseInt(value, 10);
-    value = value % 1 === 0 ? value : Math.floor(value);
-
-    if (isNaN(value)) value = 0;
-    if (value > 2147483647) value = 2147483647;
-    if (value < -2147483648) value = -2147483648;
-
-    return value;
-  }
-
-  if (type === "f") {
-    value = parseFloat(value);
-    if (isNaN(value)) value = 0;
-
-    return parseFloat(value);
-  }
-
-  if (type === "b") {
-    return typeof value === "boolean" ? value : Boolean(value);
-  }
-
-  if (type === "t") {
-    return value instanceof Uint8Array ? value : new Uint8Array([]);
+function checkType(value: any, type: string) {
+  switch (type) {
+    case "s":
+      return value === value + "";
+    case "i":
+      return isInteger(value) && value <= 2147483647 && value >= -2147483648;
+    case "f":
+      return !isNaN(value) && typeof value === "number";
+    case "b":
+      return value === !!value;
+    case "t":
+      return value instanceof Uint8Array;
   }
 }
 
@@ -51,10 +37,10 @@ export default class Model {
       // scalar type
       if (isArray) {
         for (let i = 0; i < value.length; i++) {
-          value[i] = processType(value[i], field.type);
+          if (!checkType(value[i], field.type)) return false;
         }
       } else {
-        value = processType(value, field.type);
+        if (!checkType(value, field.type)) return false;
       }
     } else {
       // model type
@@ -114,13 +100,13 @@ export default class Model {
     return encode(dataArr, true);
   }
   decode(data: Uint8Array) {
-    if (!data.byteLength) return;
+    if (!data.byteLength) return false;
     let dataArr = [];
     try {
       dataArr = decode(data, true);
     } catch (error) {
       console.log(error);
-      return;
+      return false;
     }
 
     let field = null;
@@ -128,7 +114,7 @@ export default class Model {
       const item = dataArr[i];
       if (!field) {
         field = this.schema.fields[item];
-        if (!field) return;
+        if (!field) return false;
         continue;
       }
 
@@ -137,7 +123,7 @@ export default class Model {
         value = item;
       } else {
         const targetSchema = this.config.schemas[field.type];
-        if (!targetSchema) return;
+        if (!targetSchema) return false;
         if (field.isArray) {
           value = item.map((data: Uint8Array) => {
             const m = new Model(targetSchema, this.config);
@@ -185,13 +171,15 @@ export default class Model {
     this.keys().forEach(key => {
       const field = this.schema.fields[key];
       if (!field) return;
+
+      const value = this.get(key);
       if (field.type.length === 1) {
-        obj[key] = this.get(key);
+        obj[key] = value;
       } else {
         if (field.isArray) {
-          obj[key] = this.get(key).map((item: Model) => item.toObject());
+          obj[key] = value.map((item: Model) => item.toObject());
         } else {
-          obj[key] = this.get(key).toObject();
+          obj[key] = value.toObject();
         }
       }
     });

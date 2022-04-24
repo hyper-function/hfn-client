@@ -1,5 +1,5 @@
 import { RunwayTransportType } from "./config";
-import EventEmitter from "./mitt";
+import { EventEmitter } from "./util";
 import * as msgpack from "./msgpack";
 import { Socket } from "./socket";
 
@@ -80,8 +80,8 @@ export interface TransportOptions {
 
 export enum ConnectState {
   CONNECTING,
-  OPEN,
-  CLOSED
+  CONNECTED,
+  DISCONNECTED
 }
 
 export class Transport extends EventEmitter {
@@ -99,7 +99,7 @@ export class Transport extends EventEmitter {
     //
   }
 
-  encodePacket(packet: Packet): Uint8Array {
+  encodePacket(packet: Packet): Uint8Array | undefined {
     switch (packet.type) {
       case PacketType.PING:
       case PacketType.PONG:
@@ -134,7 +134,7 @@ export class Transport extends EventEmitter {
         );
 
       default:
-        return new Uint8Array([]);
+        return;
     }
   }
   decodePackets(buffer: Uint8Array): Packet[] {
@@ -228,15 +228,12 @@ export class Transport extends EventEmitter {
     //
   }
 
-  onError(msg: string, desc: any) {
-    const err = new Error(msg);
-    (err as any).type = "TransportError";
-    (err as any).description = desc;
+  onError(err: Error) {
     this.emit("error", err);
     return this;
   }
   onOpen() {
-    this.readyState = ConnectState.OPEN;
+    this.readyState = ConnectState.CONNECTED;
     this.writable = true;
     this.emit("open");
   }
@@ -248,9 +245,7 @@ export class Transport extends EventEmitter {
     this.emit("packets", packets);
   }
   onClose() {
-    this.readyState = ConnectState.CLOSED;
+    this.readyState = ConnectState.DISCONNECTED;
     this.emit("close");
-
-    console.log("websocket closed");
   }
 }

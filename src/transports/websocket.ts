@@ -27,16 +27,21 @@ export class WebSocketTransport extends Transport {
       this.onMessage(event.data);
     };
 
-    this.ws.onerror = err => {
-      this.onError("websocket error", err);
+    this.ws.onerror = evt => {
+      this.onError(new Error("WS_ERROR"));
     };
   }
   write(packets: Packet[]) {
     this.writable = false;
     for (let i = 0; i < packets.length; i++) {
       const packet = packets[i];
-      const ub = this.encodePacket(packet);
-      const ab = ub.buffer.slice(ub.byteOffset, ub.byteOffset + ub.byteLength);
+      const buf = this.encodePacket(packet);
+      if (!buf) continue;
+
+      const ab = buf.buffer.slice(
+        buf.byteOffset,
+        buf.byteOffset + buf.byteLength
+      );
       this.ws.send(ab);
     }
 

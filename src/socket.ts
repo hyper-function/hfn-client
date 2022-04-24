@@ -1,6 +1,5 @@
-import EventEmitter from "./mitt";
-
 import {
+  ConnectState,
   Packet,
   PacketMessage,
   PacketOpen,
@@ -10,7 +9,7 @@ import {
 import { transports } from "./transports";
 import HyperFunctionClient from "./client";
 import { RunwayTransportType } from "./config";
-import { fromQs, uniqueId } from "./util";
+import { EventEmitter, fromQs } from "./util";
 import { encode, decode } from "./msgpack";
 
 export type MessagePayload =
@@ -58,19 +57,8 @@ export type MessageRpcResponse = [
   Uint8Array | null /* response payload */
 ];
 
-export enum SocketReadyState {
-  CONNECTING,
-  CONNECTED,
-  DISCONNECTED
-}
-
 export class Socket extends EventEmitter {
-  // client id
-  cid!: string;
-  // session id
-  ssid!: string;
   transport?: Transport;
-  readyState: SocketReadyState = SocketReadyState.CONNECTING;
   writeBuffer: Packet[] = [];
   heartbeatAt = 0;
   healthCheckTimer!: ReturnType<typeof setTimeout>;
@@ -80,23 +68,6 @@ export class Socket extends EventEmitter {
   retrys = 0;
   constructor(public client: HyperFunctionClient) {
     super();
-
-    this.ssid = uniqueId();
-    this.client.storage.get("CID").then(cid => {
-      if (!cid) {
-        cid = uniqueId();
-        this.client.storage.set("CID", cid);
-      }
-
-      this.cid = cid;
-      this.connect();
-    });
-  }
-  handleBeforeUnload() {
-    // send close packet
-  }
-  handleOffline() {
-    //
   }
   connect() {
     if (this.client.config.runway) {
@@ -123,8 +94,8 @@ export class Socket extends EventEmitter {
     if (qs) query = fromQs(qs);
 
     query.aid = this.client.config.id;
-    query.cid = this.cid;
-    query.sid = this.ssid;
+    query.cid = this.client.id;
+    query.sid = this.client.sessionId;
     query.ver = process.env.VERSION as string;
     query.ts = Date.now().toString();
 
@@ -183,8 +154,9 @@ export class Socket extends EventEmitter {
   }
   flush() {
     if (
-      this.readyState === SocketReadyState.CONNECTED &&
-      this.transport?.writable &&
+      this.transport &&
+      this.transport.readyState === ConnectState.CONNECTED &&
+      this.transport.writable &&
       this.writeBuffer.length
     ) {
       const wbuf = this.writeBuffer;
@@ -201,23 +173,27 @@ export class Socket extends EventEmitter {
     }
   }
   onPackets(packets: Packet[]) {
-    if (this.readyState === SocketReadyState.DISCONNECTED) return;
-
     this.heartbeatAt = Date.now();
     for (let i = 0; i < packets.length; i++) {
       const packet = packets[i];
       switch (packet.type) {
-        case PacketType.OPEN: {
+        case PacketType.OPEN:
           this.onOpen(packet.data as PacketOpen);
           break;
-        }
 
-        case PacketType.MESSAGE: {
-          const data = packet.data as PacketMessage;
-          const args = decode(data.payload, true) as MessagePayload;
-          this.emit("message", [data.packageId, args]);
+        case PacketType.PING:
+          this.send({ type: PacketType.PONG, data: {} });
           break;
-        }
+
+        case PacketType.MESSAGE:
+          this.emit("message", [
+            (packet.data as PacketMessage).packageId,
+            decode(
+              (packet.data as PacketMessage).payload,
+              true
+            ) as MessagePayload
+          ]);
+          break;
 
         default:
           break;
@@ -225,25 +201,18 @@ export class Socket extends EventEmitter {
     }
   }
   onOpen(packet: PacketOpen) {
-    this.readyState = SocketReadyState.CONNECTED;
-
     this.pingInterval = packet.pingInterval;
     this.pingTimeout = packet.pingTimeout;
     this.retrys = 0;
     this.runHealthCheck();
 
-    if (typeof window !== "undefined") {
-      window.addEventListener("beforeunload", this.handleBeforeUnload, false);
-      window.addEventListener("offline", this.handleOffline, false);
-    }
-
-    this.emit("open");
+    this.emit("connected");
     this.flush();
   }
   runHealthCheck() {
     const duration = Date.now() - this.heartbeatAt;
     if (duration > (this.pingTimeout + this.pingInterval) * 1000) {
-      // reconnect
+      this.connect();
       return;
     }
 
@@ -252,15 +221,17 @@ export class Socket extends EventEmitter {
     }, this.pingInterval);
   }
   onError(err: Error) {
-    //
+    this.onClose("");
   }
   onClose(reason: string) {
     clearTimeout(this.healthCheckTimer);
-    if (this.retrys > 10) return;
-    const wait = Math.floor(Math.random() * ((2 + this.retrys) * 1000));
+    this.emit("disconnected");
+
+    if (this.retrys > 6) return;
+    const wait = this.retrys ? Math.pow(2, this.retrys) : 1;
     setTimeout(() => {
       this.connect();
-    }, wait);
+    }, wait * 1000);
 
     this.retrys++;
   }
