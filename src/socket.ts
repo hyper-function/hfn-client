@@ -17,7 +17,8 @@ export type MessagePayload =
   | MessageSetState
   | MessageSetCookie
   | MessageRpcRequest
-  | MessageRpcResponse;
+  | MessageRpcResponse
+  | MessageCallHfn;
 
 export type MessageCallHyperFunction = [
   1,
@@ -55,6 +56,12 @@ export type MessageRpcResponse = [
   number /* rpc id */,
   number /* rpc ack id */,
   Uint8Array | null /* response payload */
+];
+
+export type MessageCallHfn = [
+  6,
+  string /* hfn name */,
+  Uint8Array | null /* payload */
 ];
 
 export class Socket extends EventEmitter {

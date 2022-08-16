@@ -37,7 +37,7 @@ export const fromQs = (qs: string): Record<string, string> =>
     return obj;
   }, {} as Record<string, string>);
 
-// from nanoio
+// nanoio
 const urlAlphabet =
   "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
 
@@ -50,7 +50,7 @@ export const uniqueId = () => {
   return id;
 };
 
-// from unfetch
+// unfetch
 export const buildFetch = (p: PromiseConstructor): any => {
   return function unfetch(
     url: string,
@@ -92,7 +92,7 @@ export const buildFetch = (p: PromiseConstructor): any => {
   };
 };
 
-// from mitt
+// mitt
 type Handler = (event: any) => void;
 
 export class EventEmitter {

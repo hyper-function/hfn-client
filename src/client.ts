@@ -1,4 +1,5 @@
 import {
+  MessageCallHfn,
   MessageCallHyperFunction,
   MessagePayload,
   MessageRpcRequest,
@@ -10,7 +11,7 @@ import {
 import Model from "./model";
 import * as util from "./util";
 import * as msgpack from "./msgpack";
-import { Config, Module, Package } from "./config";
+import { Config, HyperFunction, Module, Package } from "./config";
 
 interface CookieItem {
   packageId: number;
@@ -36,10 +37,9 @@ export default class HyperFunctionClient extends util.EventEmitter {
   fetch: typeof fetch;
   Promise: PromiseConstructor;
   WebSocket: typeof WebSocket;
-  storage: Storage;
-  ackId = 0;
-  rpcAckId = 0;
-  pendingRpc: Record<
+  private storage: Storage;
+  private rpcAckId = 0;
+  private pendingRpc: Record<
     number,
     {
       resolve: (value: Record<string, any>) => any;
@@ -49,7 +49,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
   > = {};
 
   constructor(
-    config: string,
+    config: string | Record<string, any>,
     opts: {
       Promise?: PromiseConstructor;
       WebSocket?: typeof WebSocket;
@@ -79,23 +79,25 @@ export default class HyperFunctionClient extends util.EventEmitter {
       }
     };
 
-    if (config.slice(0, 4) === "http") {
+    const configIsString = typeof config === "string";
+    if (configIsString && config.slice(0, 4) === "http") {
       this.fetch(config)
         .then(res => res.json())
         .then(res => {
-          this.config = res.config;
+          this.config = new Config(res.config);
           this.connect();
         });
       return;
     }
 
-    this.config = new Config(JSON.parse(config));
+    this.config = new Config(configIsString ? JSON.parse(config) : config);
     this.connect();
   }
 
   connect() {
     this.storage.prefix = this.storage.prefix + "_HFN_" + this.config.id + "_";
     this.sessionId = util.uniqueId();
+
     this.storage.get("CID").then(id => {
       if (!id) {
         id = util.uniqueId();
@@ -103,9 +105,10 @@ export default class HyperFunctionClient extends util.EventEmitter {
       }
 
       this.id = id;
+
       this.prepareCookie();
 
-      this.emit("configReady");
+      this.emit("connecting");
 
       this.socket = new Socket(this);
       this.socket.on("connected", () => {
@@ -117,7 +120,8 @@ export default class HyperFunctionClient extends util.EventEmitter {
         this.isReady = false;
         this.emit("disconnected");
       });
-      this.socket.on("message", this.handleMessage.bind(this));
+      this.socket.on("message", this.onMessage.bind(this));
+      this.socket.connect();
     });
   }
   private prepareCookie() {
@@ -163,21 +167,24 @@ export default class HyperFunctionClient extends util.EventEmitter {
     return cookies;
   }
 
-  private handleMessage([pkgId, args]: [number, MessagePayload]) {
+  private onMessage([pkgId, args]: [number, MessagePayload]) {
     switch (args[0]) {
       case 2:
-        this.handleSetStateMessage(args);
+        this.onSetStateMessage(args);
         break;
       case 3:
-        this.handleSetCookieMessage(pkgId, args);
+        this.onSetCookieMessage(pkgId, args);
         break;
       case 5:
-        this.handleRpcResponse(pkgId, args);
+        this.onRpcResponseMessage(pkgId, args);
+        break;
+      case 6:
+        this.onCallHfnMessage(args);
         break;
     }
   }
 
-  private handleSetStateMessage(args: MessageSetState) {
+  private onSetStateMessage(args: MessageSetState) {
     const pkgId = args[1];
     const moduleId = args[2];
     const pkg = this.config.packages[pkgId];
@@ -192,7 +199,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
     this.emit("state", { package: pkg, module: mod, state: model });
   }
 
-  private handleSetCookieMessage(packageId: number, args: MessageSetCookie) {
+  private onSetCookieMessage(packageId: number, args: MessageSetCookie) {
     const name = args[1];
     const value = args[2];
     const maxAge = args[3];
@@ -214,7 +221,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
     this.persistCookie();
   }
 
-  handleRpcResponse(packageId: number, args: MessageRpcResponse) {
+  private onRpcResponseMessage(packageId: number, args: MessageRpcResponse) {
     const rpcId = args[1];
     const rpcAckId = args[2];
     const payload = args[3];
@@ -234,41 +241,26 @@ export default class HyperFunctionClient extends util.EventEmitter {
     delete this.pendingRpc[rpcAckId];
   }
 
-  hfn(
-    name: string,
-    payload: Record<string, any> | Model | null = null,
-    opts: {
-      headers?: Record<string, string>;
-    } = {}
-  ) {
-    if (!this.isReady) {
-      this.once("ready", () => {
-        this.hfn(name, payload, opts);
-      });
-      return;
-    }
+  private onCallHfnMessage(args: MessageCallHfn) {
+    const name = args[1];
+    const payload = args[2];
 
     const hfn = this.config.hfns[name];
     if (!hfn) {
       console.log(`hfn: ${name} not found`);
-      return false;
+      return;
     }
 
-    let data: Uint8Array | null = null;
-    if (!payload) {
-      // pass
-    } else if (payload instanceof Model) {
-      data = payload.encode();
-    } else if (typeof payload === "object") {
-      const model = new Model(hfn.shcema, this.config);
-      model.fromObject(payload);
-      data = model.encode();
-    }
+    this.callHfn(hfn, payload);
+  }
 
+  private callHfn(
+    hfn: HyperFunction,
+    data: Uint8Array | null,
+    headers: Record<string, string> = {}
+  ) {
     const packageId = hfn.module.pkg.id;
     const cookies = this.getCookie(packageId);
-
-    const headers = opts.headers || {};
 
     const args: MessageCallHyperFunction = [
       1,
@@ -283,8 +275,40 @@ export default class HyperFunctionClient extends util.EventEmitter {
       headers,
       args
     });
+  }
 
-    return true;
+  hfn(
+    name: string,
+    payload: Record<string, any> | Model | null = null,
+    opts: {
+      headers?: Record<string, string>;
+    } = {}
+  ) {
+    if (!this.isReady) {
+      this.once("connected", () => {
+        this.hfn(name, payload, opts);
+      });
+      return;
+    }
+
+    const hfn = this.config.hfns[name];
+    if (!hfn) {
+      console.log(`hfn: ${name} not found`);
+      return;
+    }
+
+    let data: Uint8Array | null = null;
+    if (!payload) {
+      // pass
+    } else if (payload instanceof Model) {
+      data = payload.encode();
+    } else if (typeof payload === "object") {
+      const model = new Model(hfn.shcema, this.config);
+      model.fromObject(payload);
+      data = model.encode();
+    }
+
+    this.callHfn(hfn, data, opts.headers);
   }
 
   rpc(
@@ -297,7 +321,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
   ): Promise<Record<string, any>> {
     return new this.Promise((resolve, reject) => {
       if (!this.isReady) {
-        this.once("ready", () => {
+        this.once("connected", () => {
           this.rpc(name, payload, opts).then(resolve, reject);
         });
         return;
@@ -306,7 +330,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
       const rpc = this.config.rpcs[name];
       if (!rpc) {
         console.log(`rpc: ${name} not found`);
-        return false;
+        return;
       }
 
       let data: Uint8Array | null = null;

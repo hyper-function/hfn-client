@@ -60,6 +60,7 @@ export interface Package {
   id: number;
   name: string;
   fullName?: string;
+  mods: Module[];
   modules: Record<string, Module>;
   rpcs: Record<string, Rpc>;
 }
@@ -97,6 +98,7 @@ export class Config {
   id: string;
   towers: string[];
   runway: string;
+  pkgs: Package[] = [];
   packages: Record<string, Package> = {};
   schemas: Record<string, Schema> = {};
   hfns: Record<string, HyperFunction> = {};
@@ -116,10 +118,12 @@ export class Config {
         id: hfnPackage[0],
         name: hfnPackage[1],
         fullName: hfnPackage[2],
+        mods: [],
         modules: {},
         rpcs: {}
       };
 
+      this.pkgs.push(pkg);
       this.packages[pkg.id] = this.packages[pkg.name] = pkg;
       if (pkg.fullName) this.packages[pkg.fullName] = pkg;
 
@@ -180,6 +184,7 @@ export class Config {
           ] = mod.hfns[hfn.id] = mod.hfns[hfn.name] = hfn;
         });
 
+        pkg.mods.push(mod);
         pkg.modules[mod.id] = pkg.modules[mod.name] = mod;
       });
 
