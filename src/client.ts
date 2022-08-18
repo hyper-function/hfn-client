@@ -1,17 +1,24 @@
 import {
+  Socket,
   MessageCallHfn,
   MessageCallHyperFunction,
   MessagePayload,
   MessageRpcRequest,
   MessageRpcResponse,
   MessageSetCookie,
-  MessageSetState,
-  Socket
+  MessageSetState
 } from "./socket";
 import Model from "./model";
 import * as util from "./util";
 import * as msgpack from "./msgpack";
-import { Config, HyperFunction, Module, Package } from "./config";
+import {
+  Module,
+  Config,
+  Package,
+  HyperFunction,
+  PackageWithModule,
+  HfnConfig
+} from "./config";
 
 interface CookieItem {
   packageId: number;
@@ -23,20 +30,29 @@ interface CookieItem {
 
 interface Storage {
   prefix: string;
-  get(key: string): Promise<string>;
+  get(key: string): Promise<string | null>;
   set(key: string, value: string): void;
 }
 
 export default class HyperFunctionClient extends util.EventEmitter {
-  id!: string;
-  sessionId!: string;
-  config!: Config;
+  // appId
+  aid!: string;
+  // clientId
+  cid!: string;
+  // sessionId
+  sid!: string;
+  // development mode
+  dev: boolean;
+  runway?: string;
+  towers?: string[];
+  isReady = false;
+  packageWithModules: PackageWithModule[] = [];
+  fetch: typeof fetch;
+  WebSocket: typeof WebSocket;
+
+  private config!: Config;
   private socket!: Socket;
   private cookies: CookieItem[] = [];
-  isReady = false;
-  fetch: typeof fetch;
-  Promise: PromiseConstructor;
-  WebSocket: typeof WebSocket;
   private storage: Storage;
   private rpcAckId = 0;
   private pendingRpc: Record<
@@ -49,23 +65,23 @@ export default class HyperFunctionClient extends util.EventEmitter {
   > = {};
 
   constructor(
-    config: string | Record<string, any>,
+    config: Record<string, any>,
     opts: {
-      Promise?: PromiseConstructor;
+      dev: boolean;
+      runway?: string;
+      towers?: string[];
       WebSocket?: typeof WebSocket;
       fetch?: typeof fetch;
       storage?: Storage;
-    } = {}
+    }
   ) {
     super();
-    // polyfills
-    this.Promise = opts.Promise || Promise;
     this.WebSocket = opts.WebSocket || WebSocket;
-    this.fetch = !opts.fetch
-      ? typeof fetch === "undefined"
-        ? util.buildFetch(this.Promise)
-        : fetch.bind(window)
-      : opts.fetch;
+    this.fetch = opts.fetch
+      ? opts.fetch
+      : typeof fetch === "undefined"
+      ? (util.fetch as typeof fetch)
+      : fetch.bind(window);
 
     this.storage = opts.storage || {
       prefix: "",
@@ -73,30 +89,31 @@ export default class HyperFunctionClient extends util.EventEmitter {
         localStorage.setItem(this.prefix + key, value);
       },
       get: key => {
-        return this.Promise.resolve<string>(
-          localStorage.getItem(this.storage.prefix + key) || ""
+        return Promise.resolve<string | null>(
+          localStorage.getItem(this.storage.prefix + key)
         );
       }
     };
 
-    const configIsString = typeof config === "string";
-    if (configIsString && config.slice(0, 4) === "http") {
-      this.fetch(config)
-        .then(res => res.json())
-        .then(res => {
-          this.config = new Config(res.config);
-          this.connect();
-        });
-      return;
+    this.aid = config.id;
+    this.dev = opts.dev;
+
+    if (this.dev) {
+      this.runway = opts.runway || config?.dev?.runway;
+    } else {
+      this.runway = opts.runway || config.runway;
+      this.towers = opts.towers || config.towers;
     }
 
-    this.config = new Config(configIsString ? JSON.parse(config) : config);
+    this.config = new Config(config as HfnConfig);
+    this.packageWithModules = this.config.packageWithModules;
+
     this.connect();
   }
 
   connect() {
-    this.storage.prefix = this.storage.prefix + "_HFN_" + this.config.id + "_";
-    this.sessionId = util.uniqueId();
+    this.storage.prefix = this.storage.prefix + "_HFN_" + this.aid + "_";
+    this.sid = util.uniqueId();
 
     this.storage.get("CID").then(id => {
       if (!id) {
@@ -104,10 +121,8 @@ export default class HyperFunctionClient extends util.EventEmitter {
         this.storage.set("CID", id);
       }
 
-      this.id = id;
-
+      this.cid = id;
       this.prepareCookie();
-
       this.emit("connecting");
 
       this.socket = new Socket(this);
@@ -120,10 +135,12 @@ export default class HyperFunctionClient extends util.EventEmitter {
         this.isReady = false;
         this.emit("disconnected");
       });
+
       this.socket.on("message", this.onMessage.bind(this));
       this.socket.connect();
     });
   }
+
   private prepareCookie() {
     this.storage.get("COOKIES").then(cookieValue => {
       if (!cookieValue) return;
@@ -139,7 +156,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
 
       const now = Date.now();
       cookies = cookies.filter(
-        item => item.maxAge === -1 || now - item.createdAt < item.maxAge * 1000
+        item => item.maxAge === 0 || now - item.createdAt < item.maxAge * 1000
       );
 
       this.cookies = cookies;
@@ -156,12 +173,12 @@ export default class HyperFunctionClient extends util.EventEmitter {
   private getCookie(packageId: number) {
     const now = Date.now();
     const cookies: Record<string, string> = {};
+
     this.cookies.forEach(item => {
       if (item.packageId !== -1 && item.packageId !== packageId) return;
-      if (item.maxAge !== -1 && now - item.createdAt > item.maxAge * 1000)
-        return;
-
-      cookies[item.name] = item.value;
+      if (item.maxAge === 0 || now - item.createdAt < item.maxAge * 1000) {
+        cookies[item.name] = item.value;
+      }
     });
 
     return cookies;
@@ -319,7 +336,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
       timeout?: number;
     } = {}
   ): Promise<Record<string, any>> {
-    return new this.Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       if (!this.isReady) {
         this.once("connected", () => {
           this.rpc(name, payload, opts).then(resolve, reject);

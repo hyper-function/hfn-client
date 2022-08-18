@@ -1,12 +1,12 @@
-export type HfnConfig = [
-  // id
-  string,
-  // towers
-  string[],
-  // runway
-  string,
-  // packages
-  [
+export type HfnConfig = {
+  id: string;
+  towers?: string[];
+  runway?: string;
+  dev?: {
+    runway?: string;
+  };
+
+  packages: [
     /* id */ number,
     /* name */ string,
     /* fullName */ string,
@@ -35,8 +35,8 @@ export type HfnConfig = [
       /* request schema id */ number,
       /* response schema id */ number
     ][]
-  ][]
-];
+  ][];
+};
 
 export enum RunwayTransportType {
   WEBSOCKET = 0,
@@ -60,7 +60,6 @@ export interface Package {
   id: number;
   name: string;
   fullName?: string;
-  mods: Module[];
   modules: Record<string, Module>;
   rpcs: Record<string, Rpc>;
 }
@@ -94,36 +93,36 @@ export interface Module {
   pkg: Package;
 }
 
+export interface PackageWithModule {
+  id: number;
+  name: string;
+  modules: { id: number; name: string }[];
+}
+
 export class Config {
-  id: string;
-  towers: string[];
-  runway: string;
-  pkgs: Package[] = [];
   packages: Record<string, Package> = {};
   schemas: Record<string, Schema> = {};
   hfns: Record<string, HyperFunction> = {};
   models: Record<string, Model> = {};
   rpcs: Record<string, Rpc> = {};
+  packageWithModules: PackageWithModule[] = [];
   constructor(public hfnConfig: HfnConfig) {
-    this.id = hfnConfig[0];
-    this.towers = hfnConfig[1];
-    this.runway = hfnConfig[2];
-
-    if (!this.runway && !this.towers.length) {
-      throw new Error("miss url");
-    }
-
-    hfnConfig[3].forEach(hfnPackage => {
+    hfnConfig.packages.forEach(hfnPackage => {
       const pkg: Package = {
         id: hfnPackage[0],
         name: hfnPackage[1],
         fullName: hfnPackage[2],
-        mods: [],
         modules: {},
         rpcs: {}
       };
 
-      this.pkgs.push(pkg);
+      const packageWithModule: PackageWithModule = {
+        id: pkg.id,
+        name: pkg.name,
+        modules: []
+      };
+      this.packageWithModules.push(packageWithModule);
+
       this.packages[pkg.id] = this.packages[pkg.name] = pkg;
       if (pkg.fullName) this.packages[pkg.fullName] = pkg;
 
@@ -184,8 +183,8 @@ export class Config {
           ] = mod.hfns[hfn.id] = mod.hfns[hfn.name] = hfn;
         });
 
-        pkg.mods.push(mod);
         pkg.modules[mod.id] = pkg.modules[mod.name] = mod;
+        packageWithModule.modules.push({ id: mod.id, name: mod.name });
       });
 
       hfnPackage[5].forEach(hfnRpc => {

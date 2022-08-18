@@ -77,8 +77,8 @@ export class Socket extends EventEmitter {
     super();
   }
   connect() {
-    if (this.client.config.runway) {
-      this.open(this.client.config.runway);
+    if (this.client.runway) {
+      this.open(this.client.runway);
       return;
     }
 
@@ -87,7 +87,7 @@ export class Socket extends EventEmitter {
     });
   }
   resolveRunway() {
-    const { towers } = this.client.config;
+    const { towers } = this.client;
     return Promise.resolve("");
   }
   open(runway: string) {
@@ -100,9 +100,9 @@ export class Socket extends EventEmitter {
     let query: Record<string, string> = {};
     if (qs) query = fromQs(qs);
 
-    query.aid = this.client.config.id;
-    query.cid = this.client.id;
-    query.sid = this.client.sessionId;
+    query.aid = this.client.aid;
+    query.cid = this.client.cid;
+    query.sid = this.client.sid;
     query.ver = process.env.VERSION as string;
     query.ts = Date.now().toString();
 

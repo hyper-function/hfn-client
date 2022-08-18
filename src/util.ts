@@ -51,46 +51,44 @@ export const uniqueId = () => {
 };
 
 // unfetch
-export const buildFetch = (p: PromiseConstructor): any => {
-  return function unfetch(
-    url: string,
-    options: { method: string; credentials: string; body: any }
-  ) {
-    options = options || {};
-    return new p((resolve, reject) => {
-      const request = new XMLHttpRequest();
+export function fetch(
+  url: string,
+  options: { method: string; credentials: string; body: any }
+) {
+  options = options || {};
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
 
-      const response = () => ({
-        ok: ((request.status / 100) | 0) == 2, // 200-299
-        statusText: request.statusText,
-        status: request.status,
-        url: request.responseURL,
-        text: () => p.resolve(request.responseText),
-        json: () => p.resolve(request.responseText).then(JSON.parse),
-        blob: () => p.resolve(new Blob([request.response])),
-        arrayBuffer: () => p.resolve(request.response),
-        clone: response
-      });
-
-      request.open(options.method || "get", url, true);
-
-      request.onload = () => {
-        resolve(response());
-      };
-
-      request.onerror = reject;
-
-      request.withCredentials = options.credentials == "include";
-
-      // special case for arraybuffer response
-      if (ArrayBuffer.isView(options.body)) {
-        request.responseType = "arraybuffer";
-      }
-
-      request.send(options.body || null);
+    const response = () => ({
+      ok: ((request.status / 100) | 0) == 2, // 200-299
+      statusText: request.statusText,
+      status: request.status,
+      url: request.responseURL,
+      text: () => Promise.resolve(request.responseText),
+      json: () => Promise.resolve(request.responseText).then(JSON.parse),
+      blob: () => Promise.resolve(new Blob([request.response])),
+      arrayBuffer: () => Promise.resolve(request.response),
+      clone: response
     });
-  };
-};
+
+    request.open(options.method || "get", url, true);
+
+    request.onload = () => {
+      resolve(response());
+    };
+
+    request.onerror = reject;
+
+    request.withCredentials = options.credentials == "include";
+
+    // special case for arraybuffer response
+    if (ArrayBuffer.isView(options.body)) {
+      request.responseType = "arraybuffer";
+    }
+
+    request.send(options.body || null);
+  });
+}
 
 // mitt
 type Handler = (event: any) => void;
