@@ -18,7 +18,8 @@ export type MessagePayload =
   | MessageSetCookie
   | MessageRpcRequest
   | MessageRpcResponse
-  | MessageCallHfn;
+  | MessageCallHfn
+  | MessageChangeHistory;
 
 export type MessageCallHyperFunction = [
   1,
@@ -62,6 +63,13 @@ export type MessageCallHfn = [
   6,
   string /* hfn name */,
   Uint8Array | null /* payload */
+];
+
+export type MessageChangeHistory = [
+  7,
+  number /* action, 1: back, 2: forward, 3: go, 4: push, 5: replace */,
+  number /* delta for go */,
+  string /* path for push or replace */
 ];
 
 export class Socket extends EventEmitter {

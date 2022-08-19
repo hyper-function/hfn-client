@@ -1,10 +1,10 @@
 {
   "name": "hfn-client",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && rollup -c --environment NODE_ENV:production",
+    "build": "tsc && rm -rf ./dist && rollup -c --environment NODE_ENV:production",
     "watch": "rollup -c --watch",
     "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"

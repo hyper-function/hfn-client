@@ -6,7 +6,8 @@ import {
   MessageRpcRequest,
   MessageRpcResponse,
   MessageSetCookie,
-  MessageSetState
+  MessageSetState,
+  MessageChangeHistory
 } from "./socket";
 import Model from "./model";
 import * as util from "./util";
@@ -32,6 +33,15 @@ interface Storage {
   prefix: string;
   get(key: string): Promise<string | null>;
   set(key: string, value: string): void;
+  remove(key: string): void;
+}
+
+interface History {
+  back(): void;
+  forward(): void;
+  go(delta?: number | undefined): void;
+  push(path: string): void;
+  replace(path: string): void;
 }
 
 export default class HyperFunctionClient extends util.EventEmitter {
@@ -49,11 +59,12 @@ export default class HyperFunctionClient extends util.EventEmitter {
   packageWithModules: PackageWithModule[] = [];
   fetch: typeof fetch;
   WebSocket: typeof WebSocket;
+  storage: Storage;
+  history: History;
 
   private config!: Config;
   private socket!: Socket;
   private cookies: CookieItem[] = [];
-  private storage: Storage;
   private rpcAckId = 0;
   private pendingRpc: Record<
     number,
@@ -73,6 +84,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
       WebSocket?: typeof WebSocket;
       fetch?: typeof fetch;
       storage?: Storage;
+      history?: History;
     }
   ) {
     super();
@@ -88,10 +100,31 @@ export default class HyperFunctionClient extends util.EventEmitter {
       set(key, value) {
         localStorage.setItem(this.prefix + key, value);
       },
-      get: key => {
+      get(key) {
         return Promise.resolve<string | null>(
-          localStorage.getItem(this.storage.prefix + key)
+          localStorage.getItem(this.prefix + key)
         );
+      },
+      remove(key) {
+        localStorage.removeItem(key);
+      }
+    };
+
+    this.history = opts.history || {
+      back() {
+        history.back();
+      },
+      forward() {
+        history.forward();
+      },
+      go(delta) {
+        history.go(delta);
+      },
+      push(url) {
+        history.pushState(undefined, "", url);
+      },
+      replace(url) {
+        history.replaceState(undefined, "", url);
       }
     };
 
@@ -185,19 +218,17 @@ export default class HyperFunctionClient extends util.EventEmitter {
   }
 
   private onMessage([pkgId, args]: [number, MessagePayload]) {
-    switch (args[0]) {
-      case 2:
-        this.onSetStateMessage(args);
-        break;
-      case 3:
-        this.onSetCookieMessage(pkgId, args);
-        break;
-      case 5:
-        this.onRpcResponseMessage(pkgId, args);
-        break;
-      case 6:
-        this.onCallHfnMessage(args);
-        break;
+    const action = args[0];
+    if (action == 2) {
+      this.onSetStateMessage(args);
+    } else if (action == 3) {
+      this.onSetCookieMessage(pkgId, args);
+    } else if (action == 5) {
+      this.onRpcResponseMessage(pkgId, args);
+    } else if (action == 6) {
+      this.onCallHfnMessage(args);
+    } else if (action == 7) {
+      this.onChangeHistoryMessage(args);
     }
   }
 
@@ -214,6 +245,21 @@ export default class HyperFunctionClient extends util.EventEmitter {
     model.decode(args[3]);
 
     this.emit("state", { package: pkg, module: mod, state: model });
+  }
+
+  private onChangeHistoryMessage(args: MessageChangeHistory) {
+    const action = args[1];
+    if (action == 1) {
+      this.history.back();
+    } else if (action == 2) {
+      this.history.forward();
+    } else if (action == 3) {
+      this.history.go(args[2]);
+    } else if (action == 4) {
+      this.history.push(args[3]);
+    } else if (action == 5) {
+      this.history.replace(args[3]);
+    }
   }
 
   private onSetCookieMessage(packageId: number, args: MessageSetCookie) {
