@@ -140,6 +140,9 @@ export default class Model {
       field = null;
     }
   }
+  from(obj: any) {
+    return this.fromObject(obj);
+  }
   fromObject(obj: any) {
     if (typeof obj !== "object") return null;
     Object.keys(obj).forEach(key => {
@@ -165,6 +168,9 @@ export default class Model {
       }
     });
     return this;
+  }
+  to() {
+    return this.toObject();
   }
   toObject() {
     const obj: Record<string, any> = {};
