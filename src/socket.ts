@@ -13,15 +13,15 @@ import { EventEmitter, fromQs } from "./util";
 import { encode, decode } from "./msgpack";
 
 export type MessagePayload =
-  | MessageCallHyperFunction
+  | MessageCallHfn
   | MessageSetState
   | MessageSetCookie
   | MessageRpcRequest
   | MessageRpcResponse
-  | MessageCallHfn
+  | MessageRelayHfn
   | MessageChangeHistory;
 
-export type MessageCallHyperFunction = [
+export type MessageCallHfn = [
   1,
   number /* module id */,
   number /* hfn id */,
@@ -59,7 +59,7 @@ export type MessageRpcResponse = [
   Uint8Array | null /* response payload */
 ];
 
-export type MessageCallHfn = [
+export type MessageRelayHfn = [
   6,
   string /* hfn name */,
   Uint8Array | null /* payload */

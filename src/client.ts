@@ -1,7 +1,7 @@
 import {
   Socket,
+  MessageRelayHfn,
   MessageCallHfn,
-  MessageCallHyperFunction,
   MessagePayload,
   MessageRpcRequest,
   MessageRpcResponse,
@@ -226,7 +226,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
     } else if (action == 5) {
       this.onRpcResponseMessage(pkgId, args);
     } else if (action == 6) {
-      this.onCallHfnMessage(args);
+      this.onRelayHfnMessage(args);
     } else if (action == 7) {
       this.onChangeHistoryMessage(args);
     }
@@ -304,13 +304,13 @@ export default class HyperFunctionClient extends util.EventEmitter {
     delete this.pendingRpc[rpcAckId];
   }
 
-  private onCallHfnMessage(args: MessageCallHfn) {
+  private onRelayHfnMessage(args: MessageRelayHfn) {
     const name = args[1];
     const payload = args[2];
 
     const hfn = this.config.hfns[name];
     if (!hfn) {
-      console.log(`hfn: ${name} not found`);
+      console.error(`relay hfn: ${name} not found`);
       return;
     }
 
@@ -325,13 +325,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
     const packageId = hfn.module.pkg.id;
     const cookies = this.getCookie(packageId);
 
-    const args: MessageCallHyperFunction = [
-      1,
-      hfn.module.id,
-      hfn.id,
-      cookies,
-      data
-    ];
+    const args: MessageCallHfn = [1, hfn.module.id, hfn.id, cookies, data];
 
     this.socket.sendMessage({
       packageId,
@@ -347,16 +341,15 @@ export default class HyperFunctionClient extends util.EventEmitter {
       headers?: Record<string, string>;
     } = {}
   ) {
+    const hfn = this.config.hfns[name];
+    if (!hfn) {
+      throw new Error(`hfn: ${name} not found`);
+    }
+
     if (!this.isReady) {
       this.once("connected", () => {
         this.hfn(name, payload, opts);
       });
-      return;
-    }
-
-    const hfn = this.config.hfns[name];
-    if (!hfn) {
-      console.log(`hfn: ${name} not found`);
       return;
     }
 
@@ -374,7 +367,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
     this.callHfn(hfn, data, opts.headers);
   }
 
-  rpc(
+  call(
     name: string,
     payload: Record<string, any> | Model | null = null,
     opts: {
@@ -382,17 +375,16 @@ export default class HyperFunctionClient extends util.EventEmitter {
       timeout?: number;
     } = {}
   ): Promise<Record<string, any>> {
+    const rpc = this.config.rpcs[name];
+    if (!rpc) {
+      throw new Error(`rpc: ${name} not found`);
+    }
+
     return new Promise((resolve, reject) => {
       if (!this.isReady) {
         this.once("connected", () => {
-          this.rpc(name, payload, opts).then(resolve, reject);
+          this.call(name, payload, opts).then(resolve, reject);
         });
-        return;
-      }
-
-      const rpc = this.config.rpcs[name];
-      if (!rpc) {
-        console.log(`rpc: ${name} not found`);
         return;
       }
 
@@ -450,8 +442,7 @@ export default class HyperFunctionClient extends util.EventEmitter {
   model(name: string) {
     const model = this.config.models[name];
     if (!model) {
-      console.log(`model: ${name} not found`);
-      return false;
+      throw new Error(`model: ${name} not found`);
     }
 
     return new Model(model.schema, this.config);
