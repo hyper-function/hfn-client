@@ -250,14 +250,10 @@ export default class HyperFunctionClient extends util.EventEmitter {
   private onChangeHistoryMessage(args: MessageChangeHistory) {
     const action = args[1];
     if (action == 1) {
-      this.history.back();
-    } else if (action == 2) {
-      this.history.forward();
-    } else if (action == 3) {
       this.history.go(args[2]);
-    } else if (action == 4) {
+    } else if (action == 2) {
       this.history.push(args[3]);
-    } else if (action == 5) {
+    } else if (action == 3) {
       this.history.replace(args[3]);
     }
   }

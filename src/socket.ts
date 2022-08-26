@@ -67,7 +67,7 @@ export type MessageRelayHfn = [
 
 export type MessageChangeHistory = [
   7,
-  number /* action, 1: back, 2: forward, 3: go, 4: push, 5: replace */,
+  number /* action, 1: go, 2: push, 3: replace */,
   number /* delta for go */,
   string /* path for push or replace */
 ];
